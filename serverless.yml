@@ -1,0 +1,289 @@
+org: ckepa
+app: eu-open-data-statistics
+service: aws-serverless-app
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  stage: dev
+  region: eu-central-1
+  timeout: 30
+  memorySize: 128
+  environment:
+    REGION_NAME: ${self:provider.region}
+    STATISTICS_TABLE: ${self:custom.statisticsTable}
+    OPEN_DATA_TABLE: ${self:custom.openDataTable}
+    STATION_TABLE: ${self:custom.stationTable}
+    COMPONENT_TABLE: ${self:custom.componentTable}
+    BUCKET_NAME: ${self:custom.openDataBucket}
+    USER_POOL_ID: { Ref: UserPool }
+    CLIENT_ID: { Ref: UserClient }
+  iam:
+    role:
+      statements:
+        - Effect: 'Allow'
+          Resource: 
+            - '*'
+          Action:
+            - "s3:*"
+        - Effect: 'Allow'
+          Resource: 
+            - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.STATISTICS_TABLE}"
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+        - Effect: 'Allow'
+          Resource: 
+            - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.OPEN_DATA_TABLE}"
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+        - Effect: 'Allow'
+          Resource: 
+            - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.STATION_TABLE}"
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:GetRecords
+        - Effect: 'Allow'
+          Resource: 
+            - "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.COMPONENT_TABLE}"
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:GetRecords
+        - Effect: 'Allow'
+          Action:
+            - cognito-idp:AdminInitiateAuth
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminSetUserPassword
+          Resource: "*"
+
+custom:
+  openDataBucket: open-data-files
+  statisticsTable: statistics
+  openDataTable: air-pollution
+  stationTable: station
+  componentTable: component
+  pythonRequirements:
+    dockerizePip: true
+
+resources:
+  Resources:
+    UserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        MfaConfiguration: OFF
+        UserPoolName: serverless-app-pool
+        Schema:
+          - Name: name
+            AttributeDataType: String
+            Required: true
+            Mutable: true
+          - Name: email
+            AttributeDataType: String
+            Required: true
+            Mutable: false
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireNumbers: True
+            RequireUppercase: true
+        AutoVerifiedAttributes: ["email"]
+
+    UserClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: serverless-app-client
+        GenerateSecret: false
+        UserPoolId: { Ref: UserPool }
+        AccessTokenValidity: 5
+        IdTokenValidity: 5
+        ExplicitAuthFlows:
+          - "ADMIN_NO_SRP_AUTH"
+
+    ApiGatewayAuthorizer:
+      DependsOn:
+        - ApiGatewayRestApi
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        Name: cognito-authorizer
+        IdentitySource: method.request.header.Authorization
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        Type: COGNITO_USER_POOLS
+        ProviderARNs:
+          - Fn::GetAtt: [UserPool, Arn]
+
+    StatisticsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        StreamSpecification: 
+          StreamViewType: NEW_AND_OLD_IMAGES
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+         - AttributeName: id
+           KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 10000
+          WriteCapacityUnits: 10000
+        TableName: ${self:provider.environment.STATISTICS_TABLE}
+    
+    OpenDataTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        StreamSpecification: 
+          StreamViewType: NEW_AND_OLD_IMAGES
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+         - AttributeName: id
+           KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 10000
+          WriteCapacityUnits: 10000
+        TableName: ${self:provider.environment.OPEN_DATA_TABLE}
+    
+    FilesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.BUCKET_NAME}
+        VersioningConfiguration:
+          Status: Enabled
+        # AccelerationStatus: String
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerPreferred
+
+functions:
+  loginUser:
+    handler: user/login.handle_login
+    events:
+      - http:
+          path: api/login
+          method: post
+          cors: true
+  
+  registerUser:
+    handler: user/register.handle_registration
+    events:
+      - http:
+          path: api/register
+          method: post
+          cors: true
+          integration: LAMBDA
+
+  get_presigned_url:
+    handler: statistics/get_presigned_url.handle_url
+    events:
+      - http:
+          path: api/file-url
+          method: get
+          cors: true
+          authorizer:
+            name: ApiGatewayAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: 
+              Fn::GetAtt:
+                - UserPool
+                - Arn
+            claims:
+              - email
+          request:
+            parameters:
+              querystrings:
+                bucket_name: true
+                file_key: true
+                expiry_time: true
+
+  store_small_files:
+    handler: statistics/store_small_files.handle_storing
+    description: Storing small files
+    events:
+      - http:
+          path: api/store
+          method: post
+          cors: true
+          authorizer:
+            name: ApiGatewayAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: 
+              Fn::GetAtt:
+                - UserPool
+                - Arn
+            claims:
+              - email
+
+  process_open_data:
+    handler: statistics/process_open_data.handle_processing
+    description: Processing open data
+    timeout: 300
+    memorySize: 1024
+    events:
+      - s3:
+          bucket: ${self:custom.openDataBucket}
+          event: s3:ObjectCreated:*
+          existing: true
+
+  fetch_files:
+    handler: statistics/fetch.handle_data_fetching
+    timeout: 30
+    dependsOn:
+      - StatisticsTable
+      - OpenDataTable
+    events:
+      - http:
+          path: api/
+          method: get
+          cors: true
+          authorizer:
+            name: ApiGatewayAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: 
+              Fn::GetAtt:
+                - UserPool
+                - Arn
+            claims:
+              - username
+            authorizerId:
+              Ref: ApiGatewayAuthorizer
+          request:
+            parameters:
+              querystrings:
+                station_id: true
+                component_id: false
+
+plugins:
+  - serverless-python-requirements
+  - serverless-plugin-existing-s3
+  - serverless-deployment-bucket
+  - serverless-s3-deploy
+      
