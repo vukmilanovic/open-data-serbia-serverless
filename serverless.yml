@@ -182,9 +182,26 @@ resources:
         OwnershipControls:
           Rules:
             - ObjectOwnership: BucketOwnerPreferred
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders: ['*']
+              AllowedMethods: [GET, PUT]
+              AllowedOrigins: ['*']
+              Id: CORSRuleId1
+              MaxAge: '3600'
+    
+    GatewayResponseDefault4XX:
+       Type: 'AWS::ApiGateway::GatewayResponse'
+       Properties:
+         ResponseParameters:
+           gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+           gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+         ResponseType: DEFAULT_4XX
+         RestApiId:
+           Ref: 'ApiGatewayRestApi'
 
 functions:
-  loginUser:
+  login_user:
     handler: user/login.handle_login
     events:
       - http:
@@ -192,7 +209,7 @@ functions:
           method: post
           cors: true
   
-  registerUser:
+  register_user:
     handler: user/register.handle_registration
     events:
       - http:
@@ -253,15 +270,34 @@ functions:
           event: s3:ObjectCreated:*
           existing: true
 
-  fetch_files:
-    handler: statistics/fetch.handle_data_fetching
+  fetch_items:
+    handler: statistics/fetch_items.handle_fetching
+    events:
+      - http:
+          path: api/
+          method: get
+          cors: true
+          authorizer:
+            name: ApiGatewayAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: 
+              Fn::GetAtt:
+                - UserPool
+                - Arn
+            claims:
+              - username
+            authorizerId:
+              Ref: ApiGatewayAuthorizer
+
+  search:
+    handler: statistics/search.handle_search
     timeout: 30
     dependsOn:
       - StatisticsTable
       - OpenDataTable
     events:
       - http:
-          path: api/
+          path: api/search
           method: get
           cors: true
           authorizer:

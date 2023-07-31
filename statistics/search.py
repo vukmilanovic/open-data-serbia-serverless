@@ -8,7 +8,7 @@ from decimal import Decimal
 dynamodb = boto3.resource("dynamodb", region_name=str(os.environ["REGION_NAME"]))
 
 
-def handle_data_fetching(event, context):
+def handle_search(event, context):
     open_data_table = dynamodb.Table(str(os.environ["OPEN_DATA_TABLE"]))
     statistics_table = dynamodb.Table(str(os.environ["STATISTICS_TABLE"]))
     station_table = dynamodb.Table(str(os.environ["STATION_TABLE"]))
@@ -39,7 +39,14 @@ def handle_data_fetching(event, context):
             # open_data = fetch(partial_scan_template, open_data_table)
             statistics_data = fetch(partial_scan_template, statistics_table)
     except ClientError as err:
-        raise
+        return {
+            "statusCode": 500,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": True,
+            },
+            "body": err,
+        }
 
     response = {
         "open_data": open_data,
@@ -50,7 +57,11 @@ def handle_data_fetching(event, context):
 
     return {
         "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": True,
+        },
         "body": json.dumps(response, cls=DecimalEncoder),
     }
 

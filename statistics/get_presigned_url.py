@@ -17,6 +17,10 @@ def handle_url(event, context):
 
     return {
         "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": True,
+        },
         "body": json.dumps(presigned_url),
     }
