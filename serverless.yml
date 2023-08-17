@@ -147,8 +147,8 @@ resources:
          - AttributeName: id
            KeyType: HASH
         ProvisionedThroughput:
-          ReadCapacityUnits: 10000
-          WriteCapacityUnits: 10000
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
         TableName: ${self:provider.environment.STATISTICS_TABLE}
     
     OpenDataTable:
@@ -163,8 +163,8 @@ resources:
          - AttributeName: id
            KeyType: HASH
         ProvisionedThroughput:
-          ReadCapacityUnits: 10000
-          WriteCapacityUnits: 10000
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
         TableName: ${self:provider.environment.OPEN_DATA_TABLE}
     
     FilesBucket:
